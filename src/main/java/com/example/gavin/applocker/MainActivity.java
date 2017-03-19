@@ -5,6 +5,7 @@ import android.app.usage.UsageStats;
 import android.app.usage.UsageStatsManager;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
@@ -13,17 +14,21 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Process;
 import android.provider.Settings;
+import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 
 import android.os.Bundle;
 import android.app.Activity;
+import android.widget.SearchView;
 import android.test.ApplicationTestCase;
 import android.util.Log;
 import android.view.Menu;
 import android.view.View;
 import android.view.ViewDebug;
 import android.view.ViewGroup;
+import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -43,14 +48,25 @@ import static java.security.AccessController.getContext;
 
 public class MainActivity extends Activity {
     ListView lv;
+    SearchView sv;
     Model[] appList;
+    Model[] searchResult;
+    Model[] searchResult2;
+    boolean search =false;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M){
+            // Show alert dialog to the user saying a separate permission is needed
+            // Launch the settings activity if the user prefers
+            Intent myIntent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
+            startActivity(myIntent);
+        } else {
         Intent intent = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
-        startActivity(intent);
+        startActivity(intent); }
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         lv = (ListView) findViewById(R.id.listView1);
+        sv = (SearchView) findViewById(R.id.searchView1);
 
         final PackageManager pm = getPackageManager();
         List<PackageInfo> packages = pm.getInstalledPackages(0);
@@ -105,6 +121,30 @@ public class MainActivity extends Activity {
 
         CustomAdapter adapter = new CustomAdapter(this, appList);
         lv.setAdapter(adapter);
+        sv.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
+            @Override
+            public boolean onQueryTextSubmit(String query) {
+                if(query != null){
+                    runSearch(query);
+                    return true;
+                }
+                else {
+                    return false;
+                }
+            }
+            @Override
+            public boolean onQueryTextChange(String s) {
+                return false;
+            }
+
+        });
+        sv.setOnCloseListener(new SearchView.OnCloseListener() {
+            @Override
+            public boolean onClose() {
+                repopulate();
+                return true;
+            }
+        });
     }
 
 
@@ -131,7 +171,7 @@ public class MainActivity extends Activity {
                 while (!Thread.interrupted())
                     try
                     {
-                        Thread.sleep(3000);
+                        Thread.sleep(5000);
                         runOnUiThread(new Runnable() // start actions in UI thread
                         {
                             @Override
@@ -143,12 +183,13 @@ public class MainActivity extends Activity {
                                     String name = appList[i].getName().replaceAll("\\s+","").toLowerCase();
                                     Log.d(Integer.toString(appList[i].getValue()),name);
                                     if (getTopAppName(getBaseContext()).contains(name) && appList[i].getValue() == 1) {
-                                        int duration = Toast.LENGTH_SHORT;
-                                        Toast toast = Toast.makeText(getApplicationContext(), appList[i].getName() + " is locked", duration);
-                                        toast.show();
-                                        Intent intent = new Intent(Intent.ACTION_MAIN);
-                                        intent.addCategory(Intent.CATEGORY_HOME);
-                                        startActivity(intent);
+//                                        int duration = Toast.LENGTH_SHORT;
+//                                        Toast toast = Toast.makeText(getApplicationContext(), appList[i].getName() + " is locked", duration);
+//                                        toast.show();
+
+                                        AlertDialog alert = Alerts.locked(MainActivity.this);
+                                        alert.getWindow().setType(WindowManager.LayoutParams.TYPE_SYSTEM_ALERT);
+                                        alert.show();
 
 //                                        ActivityManager mActivityManager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
 //                                        List<ActivityManager.RunningServiceInfo> appProcessInfoList = mActivityManager.getRunningServices(Integer.MAX_VALUE);
@@ -228,14 +269,59 @@ public class MainActivity extends Activity {
         return "";
     }
 
+    public void repopulate(){
+        search = false;
+        CustomAdapter adapter = new CustomAdapter(this, appList);
+        lv.setAdapter(adapter);
+        View view = this.getCurrentFocus();
+        if (view != null) {
+            InputMethodManager imm = (InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE);
+            imm.hideSoftInputFromWindow(view.getWindowToken(), 0);
+        }
+    }
+    public void runSearch(String s){
+        search = true;
+        searchResult = new Model[appList.length];
+        int offset = 0;
+        int newSize=0;
+        for(int i = 0; i <(appList.length-offset); i++){
+            if(appList[i+offset].getName().toLowerCase().contains(s.toLowerCase())){
+                searchResult[i]= new Model(appList[i+offset].getName(),i+offset,appList[i+offset].getIcon(),appList[i+offset].getValue(),appList[i+offset].getInfo());
+            }
+            else{
+                i--;
+                offset++;
+            }
+            newSize=i;
+        }
+        searchResult2 = new Model[newSize+1];
+        for(int i=0; i<newSize+1; i++){
+            searchResult2[i]=searchResult[i];
+        }
+        CustomAdapter newadapter = new CustomAdapter(this, searchResult2);
+        lv.setAdapter(newadapter);
+    }
+
     public void clearAll(View v) {
-        for (int i = 0; i < appList.length; i++) {
-            appList[i].setValue(0);
-            final ViewGroup viewGroup = (ViewGroup) ((ViewGroup) this.findViewById(android.R.id.content)).getChildAt(0);
-            ListView lvout = (ListView) viewGroup.getChildAt(1);
-            LinearLayout llout = (LinearLayout) lvout.getChildAt(i);
-            CheckBox check = (CheckBox) llout.getChildAt(0);
-            check.setChecked(false);
+        if(search == false) {
+            for (int i = 0; i < appList.length; i++) {
+                appList[i].setValue(0);
+                final ViewGroup viewGroup = (ViewGroup) ((ViewGroup) this.findViewById(android.R.id.content)).getChildAt(0);
+                ListView lvout = (ListView) viewGroup.getChildAt(2); //if add anything ontop of listview need to increase 2 by 1 for every item added.
+                LinearLayout llout = (LinearLayout) lvout.getChildAt(i);
+                CheckBox check = (CheckBox) llout.getChildAt(0);
+                check.setChecked(false);
+            }
+        }
+        else{
+            for (int i = 0; i < searchResult2.length; i++) {
+                searchResult2[i].setValue(0);
+                final ViewGroup viewGroup = (ViewGroup) ((ViewGroup) this.findViewById(android.R.id.content)).getChildAt(0);
+                ListView lvout = (ListView) viewGroup.getChildAt(2); //if add anything ontop of listview need to increase 2 by 1 for every item added.
+                LinearLayout llout = (LinearLayout) lvout.getChildAt(i);
+                CheckBox check = (CheckBox) llout.getChildAt(0);
+                check.setChecked(false);
+            }
         }
     }
 }
